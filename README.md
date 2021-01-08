@@ -1,7 +1,7 @@
 # go-tradier
 A Go library for accessing the Tradier Developer API.
 
-[![GoDoc](https://godoc.org/github.com/timpalpant/go-tradier?status.svg)](http://godoc.org/github.com/timpalpant/go-tradier)
+[![GoDoc](https://godoc.org/github.com/gnagel/go-tradier?status.svg)](http://godoc.org/github.com/gnagel/go-tradier)
 [![Build Status](https://travis-ci.org/timpalpant/go-tradier.svg?branch=master)](https://travis-ci.org/timpalpant/go-tradier)
 [![Coverage Status](https://coveralls.io/repos/timpalpant/go-tradier/badge.svg?branch=master&service=github)](https://coveralls.io/github/timpalpant/go-tradier?branch=master)
 
@@ -19,7 +19,7 @@ and does not endorse or recommend this library.
 The `tcli` tool is a small command-line interface for making requests.
 
 ```shell
-$ go install github.com/timpalpant/go-tradier/tcli
+$ go install github.com/gnagel/go-tradier/tcli
 $ tcli -tradier.account XXXXX -tradier.apikey XXXXX -command positions
 ```
 
@@ -31,7 +31,7 @@ package main
 import (
   "fmt"
 
-  "github.com/timpalpant/go-tradier"
+  "github.com/gnagel/go-tradier"
 )
 
 func main() {
@@ -58,7 +58,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/timpalpant/go-tradier"
+	"github.com/gnagel/go-tradier"
 )
 
 func main() {
@@ -100,7 +100,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/timpalpant/go-tradier"
+	"github.com/gnagel/go-tradier"
 )
 
 func main() {
