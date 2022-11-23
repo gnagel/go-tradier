@@ -539,8 +539,12 @@ func (tc *Client) GetOptionStrikes(symbol string, expiration time.Time) ([]float
 }
 
 // GetOptionChain returns the option chain for the given symbol and expiration.
-func (tc *Client) GetOptionChain(symbol string, expiration time.Time) ([]*Quote, error) {
+func (tc *Client) GetOptionChain(symbol string, expiration time.Time, greeks *bool) ([]*Quote, error) {
 	params := "?symbol=" + symbol + "&expiration=" + expiration.Format("2006-01-02")
+	if *greeks {
+		params = params + "&greeks=true"
+	}
+
 	url := tc.endpoint + "/v1/markets/options/chains" + params
 
 	var result struct {
