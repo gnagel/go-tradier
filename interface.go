@@ -141,6 +141,21 @@ type Quote struct {
 	ExpirationType   string   `json:"expiration_type"`
 	OptionType       string   `json:"option_type"`
 	RootSymbol       string   `json:"root_symbol"`
+	Greeks           *Greeks  `json:"greeks"`
+}
+
+type Greeks struct {
+	Delta     float64 `json:"delta"`
+	Gamma     float64 `json:"gamma"`
+	Theta     float64 `json:"theta"`
+	Vega      float64 `json:"vega"`
+	Rho       float64 `json:"rho"`
+	Phi       float64 `json:"phi"`
+	BidIv     float64 `json:"bid_iv"`
+	MidIv     float64 `json:"mid_iv"`
+	AskIv     float64 `json:"ask_iv"`
+	SmvVol    float64 `json:"smv_vol"`
+	UpdatedAt string  `json:"updated_at"`
 }
 
 type TimeSale struct {

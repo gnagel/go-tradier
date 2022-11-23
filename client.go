@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -23,7 +24,7 @@ const (
 	// Header indicating the time at which our rate limit will renew.
 	rateLimitExpiry = "X-Ratelimit-Expiry"
 
-	// Error returned by Tradier if we make too big of a request.
+	// ErrBodyBufferOverflow is returned by Tradier if we make too big of a request.
 	ErrBodyBufferOverflow = "protocol.http.TooBigBody"
 )
 
@@ -33,6 +34,7 @@ var (
 	ErrNoAccountSelected = errors.New("no account selected")
 )
 
+// ClientParams contains the parameters for creating a new Tradier API Client.
 type ClientParams struct {
 	Endpoint   string
 	AuthToken  string
@@ -64,6 +66,7 @@ type Client struct {
 	account string
 }
 
+// NewClient returns a new Tradier API Client.
 func NewClient(params ClientParams) *Client {
 	return &Client{
 		client:     params.Client,
@@ -75,10 +78,12 @@ func NewClient(params ClientParams) *Client {
 	}
 }
 
+// SelectAccount sets the account to be used for account-specific methods.
 func (tc *Client) SelectAccount(account string) {
 	tc.account = account
 }
 
+// GetAccountBalances returns the account balances for the given account.
 func (tc *Client) GetAccountBalances() (*AccountBalances, error) {
 	if tc.account == "" {
 		return nil, ErrNoAccountSelected
@@ -86,13 +91,21 @@ func (tc *Client) GetAccountBalances() (*AccountBalances, error) {
 
 	url := tc.endpoint + "/v1/accounts/" + tc.account + "/balances"
 	var result struct {
-		Balances *AccountBalances
+		Balances *json.RawMessage
 	}
 
 	err := tc.getJSON(url, &result)
-	return result.Balances, err
+
+	out, err := result.Balances.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+
+	var results AccountBalances
+	return oneToInfinity(results, out).(*AccountBalances), err
 }
 
+// GetAccountPositions returns a list of positions for the given account.
 func (tc *Client) GetAccountPositions() ([]*Position, error) {
 	if tc.account == "" {
 		return nil, ErrNoAccountSelected
@@ -101,13 +114,22 @@ func (tc *Client) GetAccountPositions() ([]*Position, error) {
 	url := tc.endpoint + "/v1/accounts/" + tc.account + "/positions"
 	var result struct {
 		Positions struct {
-			Position []*Position
+			Position *json.RawMessage
 		}
 	}
+
 	err := tc.getJSON(url, &result)
-	return result.Positions.Position, err
+
+	out, err := result.Positions.Position.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+
+	var results Position
+	return oneToInfinity(results, out).([]*Position), err
 }
 
+// GetAccountHistory returns the account history for the given account.
 func (tc *Client) GetAccountHistory(limit int) ([]*Event, error) {
 	if tc.account == "" {
 		return nil, ErrNoAccountSelected
@@ -119,13 +141,22 @@ func (tc *Client) GetAccountHistory(limit int) ([]*Event, error) {
 	}
 	var result struct {
 		History struct {
-			Event []*Event
+			Event *json.RawMessage
 		}
 	}
+
 	err := tc.getJSON(url, &result)
-	return result.History.Event, err
+
+	out, err := result.History.Event.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+
+	var results Event
+	return oneToInfinity(results, out).([]*Event), err
 }
 
+// GetAccountCostBasis returns the cost basis for the closed positions.
 func (tc *Client) GetAccountCostBasis() ([]*ClosedPosition, error) {
 	if tc.account == "" {
 		return nil, ErrNoAccountSelected
@@ -134,13 +165,22 @@ func (tc *Client) GetAccountCostBasis() ([]*ClosedPosition, error) {
 	url := tc.endpoint + "/v1/accounts/" + tc.account + "/gainloss"
 	var result struct {
 		GainLoss struct {
-			ClosedPosition []*ClosedPosition `json:"closed_position"`
+			ClosedPosition *json.RawMessage `json:"closed_position"`
 		} `json:"gainloss"`
 	}
+
 	err := tc.getJSON(url, &result)
-	return result.GainLoss.ClosedPosition, err
+
+	out, err := result.GainLoss.ClosedPosition.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+
+	var results ClosedPosition
+	return oneToInfinity(results, out).([]*ClosedPosition), err
 }
 
+// GetOpenOrders returns a list of open orders.
 func (tc *Client) GetOpenOrders() ([]*Order, error) {
 	if tc.account == "" {
 		return nil, ErrNoAccountSelected
@@ -148,10 +188,13 @@ func (tc *Client) GetOpenOrders() ([]*Order, error) {
 
 	url := tc.endpoint + "/v1/accounts/" + tc.account + "/orders"
 	var result openOrdersResponse
+
 	err := tc.getJSON(url, &result)
-	return []*Order(result.Orders.Order), err
+
+	return result.Orders.Order, err
 }
 
+// GetOrderStatus returns the status of an order.
 func (tc *Client) GetOrderStatus(orderId int) (*Order, error) {
 	if tc.account == "" {
 		return nil, ErrNoAccountSelected
@@ -159,12 +202,21 @@ func (tc *Client) GetOrderStatus(orderId int) (*Order, error) {
 
 	url := tc.endpoint + "/v1/accounts/" + tc.account + "/orders/" + strconv.Itoa(orderId)
 	var result struct {
-		Order *Order
+		Order *json.RawMessage
 	}
+
 	err := tc.getJSON(url, &result)
-	return result.Order, err
+
+	out, err := result.Order.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+
+	var results Order
+	return oneToInfinity(results, out).(*Order), err
 }
 
+// PlaceOrder places an order with the Tradier API.
 func (tc *Client) PlaceOrder(order Order) (int, error) {
 	if tc.account == "" {
 		return 0, ErrNoAccountSelected
@@ -192,6 +244,7 @@ func (tc *Client) PlaceOrder(order Order) (int, error) {
 			Status string
 		}
 	}
+
 	dec := json.NewDecoder(resp.Body)
 	err = dec.Decode(&result)
 	if err != nil {
@@ -199,9 +252,11 @@ func (tc *Client) PlaceOrder(order Order) (int, error) {
 	} else if result.Order.Status != StatusOK {
 		err = fmt.Errorf("received order status: %v", result.Order.Status)
 	}
+
 	return result.Order.Id, err
 }
 
+// PreviewOrder returns the cost of the order without actually placing it.
 func (tc *Client) PreviewOrder(order Order) (*OrderPreview, error) {
 	if tc.account == "" {
 		return nil, ErrNoAccountSelected
@@ -220,22 +275,22 @@ func (tc *Client) PreviewOrder(order Order) (*OrderPreview, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		return nil, errors.New(resp.Status + ": " + string(body))
 	}
 
 	var result struct {
 		Order *OrderPreview
 	}
-	dec := json.NewDecoder(resp.Body)
-	err = dec.Decode(&result)
-	if err != nil {
+
+	if err = json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return result.Order, err
 	} else if result.Order == nil {
 		err = fmt.Errorf("didn't receive order preview")
 	} else if result.Order.Status != StatusOK {
 		err = fmt.Errorf("received order status: %v", result.Order.Status)
 	}
+
 	return result.Order, err
 }
 
@@ -295,6 +350,7 @@ func orderToParams(order Order) (url.Values, error) {
 	return form, nil
 }
 
+// ChangeOrder changes an existing order.
 func (tc *Client) ChangeOrder(orderId int, order Order) error {
 	if tc.account == "" {
 		return ErrNoAccountSelected
@@ -358,6 +414,7 @@ func updateOrderParams(order Order) (url.Values, error) {
 	return form, nil
 }
 
+// CancelOrder cancels an order.
 func (tc *Client) CancelOrder(orderId int) error {
 	if tc.account == "" {
 		return ErrNoAccountSelected
@@ -395,10 +452,8 @@ func (tc *Client) CancelOrder(orderId int) error {
 
 }
 
-// Get a list of symbols matching the given parameters.
-func (tc *Client) LookupSecurities(
-	types []SecurityType, exchanges []string, query string) (
-	[]Security, error) {
+// LookupSecurities returns a list of securities matching the given query.
+func (tc *Client) LookupSecurities(types []SecurityType, exchanges []string, query string) ([]Security, error) {
 	url := tc.endpoint + "/v1/markets/lookup"
 	if len(types) > 0 {
 		strTypes := make([]string, len(types))
@@ -416,28 +471,42 @@ func (tc *Client) LookupSecurities(
 
 	var result struct {
 		Securities struct {
-			// TODO: If there is only one data point, then Tradier returns
-			// a single object (not a list) and this fails to parse it.
-			Security []Security
+			Security *json.RawMessage
 		}
 	}
+
 	err := tc.getJSON(url, &result)
-	return result.Securities.Security, err
+
+	out, err := result.Securities.Security.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+
+	var results Security
+	return oneToInfinity(results, out).([]Security), err
 }
 
-// Get the securities on the Easy-to-Borrow list.
+// GetEasyToBorrow returns a list of securities that are easy to borrow.
 func (tc *Client) GetEasyToBorrow() ([]Security, error) {
 	url := tc.endpoint + "/v1/markets/etb"
 	var result struct {
 		Securities struct {
-			Security []Security
+			Security *json.RawMessage
 		}
 	}
+
 	err := tc.getJSON(url, &result)
-	return result.Securities.Security, err
+
+	out, err := result.Securities.Security.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+
+	var results Security
+	return oneToInfinity(results, out).([]Security), err
 }
 
-// Get an option's expiration dates.
+// GetOptionExpirationDates returns a list of option expiration dates for the
 func (tc *Client) GetOptionExpirationDates(symbol string) ([]time.Time, error) {
 	params := "?symbol=" + symbol
 	url := tc.endpoint + "/v1/markets/options/expirations" + params
@@ -456,7 +525,7 @@ func (tc *Client) GetOptionExpirationDates(symbol string) ([]time.Time, error) {
 	return times, err
 }
 
-// Get an option's expiration dates.
+// GetOptionStrikes returns the strikes for a given option symbol and expiration date.
 func (tc *Client) GetOptionStrikes(symbol string, expiration time.Time) ([]float64, error) {
 	params := "?symbol=" + symbol + "&expiration=" + expiration.Format("2006-01-02")
 	url := tc.endpoint + "/v1/markets/options/strikes" + params
@@ -469,28 +538,50 @@ func (tc *Client) GetOptionStrikes(symbol string, expiration time.Time) ([]float
 	return result.Strikes.Strike, err
 }
 
-// Get an option chain.
-func (tc *Client) GetOptionChain(symbol string, expiration time.Time) ([]*Quote, error) {
+// GetOptionChain returns the option chain for the given symbol and expiration.
+func (tc *Client) GetOptionChain(symbol string, expiration time.Time, greeks *bool) ([]*Quote, error) {
 	params := "?symbol=" + symbol + "&expiration=" + expiration.Format("2006-01-02")
+	if *greeks {
+		params = params + "&greeks=true"
+	}
+
 	url := tc.endpoint + "/v1/markets/options/chains" + params
+
 	var result struct {
 		Options struct {
-			Option []*Quote
+			Option *json.RawMessage
 		}
 	}
+
 	err := tc.getJSON(url, &result)
-	return result.Options.Option, err
+
+	out, err := result.Options.Option.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+
+	var results Quote
+	return oneToInfinity(results, out).([]*Quote), err
 }
 
+// GetQuotes returns a list of quotes for the given symbols.
 func (tc *Client) GetQuotes(symbols []string) ([]*Quote, error) {
 	url := tc.endpoint + "/v1/markets/quotes?symbols=" + strings.Join(symbols, ",")
 	var result struct {
 		Quotes struct {
-			Quote []*Quote
+			Quote *json.RawMessage
 		}
 	}
+
 	err := tc.getJSON(url, &result)
-	return result.Quotes.Quote, err
+
+	out, err := result.Quotes.Quote.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+
+	var results Quote
+	return oneToInfinity(results, out).([]*Quote), err
 }
 
 func (tc *Client) getTimeSalesUrl(symbol string, interval Interval, start, end time.Time) string {
@@ -581,7 +672,7 @@ func bisect(start, end time.Time) time.Time {
 	return middle
 }
 
-// Return daily, minute, or tick price bars for the given symbol.
+// GetTimeSales returns daily, minute, or tick price bars for the given symbol.
 // Tick data is available for the past 5 days, minute data for the past 20 days,
 // and daily data since 1980-01-01.
 // NOTE: The results are split, but not dividend-adjusted.
@@ -628,7 +719,7 @@ func (tc *Client) GetTimeSales(
 	return decodeTimeSales(resp.Body, interval)
 }
 
-// Subscribe to a stream of market events for the given symbols.
+// StreamMarketEvents subscribes to a stream of market events for the given symbols.
 // Filter restricts the type of events streamed and can include:
 // summary, trade, quote, timesale. If nil then all events are streamed.
 // https://developer.tradier.com/documentation/streaming/get-markets-events
@@ -693,23 +784,30 @@ func (tc *Client) StreamMarketEvents(
 	return resp.Body, nil
 }
 
-// Get the market calendar for a given month.
+// GetMarketCalendar returns the market calendar for a given month.
 func (tc *Client) GetMarketCalendar(year int, month time.Month) ([]MarketCalendar, error) {
 	params := fmt.Sprintf("?year=%d&month=%d", year, month)
 	url := tc.endpoint + "/v1/markets/calendar" + params
 	var result struct {
 		Calendar struct {
 			Days struct {
-				Day []MarketCalendar
+				Day *json.RawMessage
 			}
 		}
 	}
 
 	err := tc.getJSON(url, &result)
-	return result.Calendar.Days.Day, err
+
+	out, err := result.Calendar.Days.Day.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+
+	var results MarketCalendar
+	return oneToInfinity(results, out).([]MarketCalendar), err
 }
 
-// Get the current state of the market (open/closed/etc.)
+// GetMarketState returns the current status of the market.
 func (tc *Client) GetMarketState() (MarketStatus, error) {
 	url := tc.endpoint + "/v1/markets/clock"
 	var result struct {
@@ -719,7 +817,7 @@ func (tc *Client) GetMarketState() (MarketStatus, error) {
 	return result.Clock, err
 }
 
-// Get corporate calendars.
+// GetCorporateCalendars returns the corporate calendars for a given symbol.
 func (tc *Client) GetCorporateCalendars(symbols []string) (
 	GetCorporateCalendarsResponse, error) {
 	params := "?symbols=" + strings.Join(symbols, ",")
@@ -729,7 +827,7 @@ func (tc *Client) GetCorporateCalendars(symbols []string) (
 	return result, err
 }
 
-// Get company fundamentals.
+// GetCompanyInfo returns information about a company.
 func (tc *Client) GetCompanyInfo(symbols []string) (GetCompanyInfoResponse, error) {
 	params := "?symbols=" + strings.Join(symbols, ",")
 	url := tc.endpoint + "/beta/markets/fundamentals/company" + params
@@ -738,7 +836,7 @@ func (tc *Client) GetCompanyInfo(symbols []string) (GetCompanyInfoResponse, erro
 	return result, err
 }
 
-// Get corporate actions.
+// GetCorporateActions returns a list of corporate actions for the given symbols.
 func (tc *Client) GetCorporateActions(symbols []string) (GetCorporateActionsResponse, error) {
 	params := "?symbols=" + strings.Join(symbols, ",")
 	url := tc.endpoint + "/beta/markets/fundamentals/corporate_actions" + params
@@ -747,7 +845,7 @@ func (tc *Client) GetCorporateActions(symbols []string) (GetCorporateActionsResp
 	return result, err
 }
 
-// Get dividends.
+// GetDividends returns the dividends for the given symbols.
 func (tc *Client) GetDividends(symbols []string) (GetDividendsResponse, error) {
 	params := "?symbols=" + strings.Join(symbols, ",")
 	url := tc.endpoint + "/beta/markets/fundamentals/dividends" + params
@@ -756,7 +854,7 @@ func (tc *Client) GetDividends(symbols []string) (GetDividendsResponse, error) {
 	return result, err
 }
 
-// Get corporate ratios.
+// GetRatios returns the financial ratios for the given symbols.
 func (tc *Client) GetRatios(symbols []string) (GetRatiosResponse, error) {
 	params := "?symbols=" + strings.Join(symbols, ",")
 	url := tc.endpoint + "/beta/markets/fundamentals/ratios" + params
@@ -765,7 +863,7 @@ func (tc *Client) GetRatios(symbols []string) (GetRatiosResponse, error) {
 	return result, err
 }
 
-// Get financial reports.
+// GetFinancials returns financials for the given list of symbols.
 func (tc *Client) GetFinancials(symbols []string) (GetFinancialsResponse, error) {
 	params := "?symbols=" + strings.Join(symbols, ",")
 	url := tc.endpoint + "/beta/markets/fundamentals/financials" + params
@@ -774,7 +872,7 @@ func (tc *Client) GetFinancials(symbols []string) (GetFinancialsResponse, error)
 	return result, err
 }
 
-// Get price statistics.
+// GetPriceStatistics returns the price statistics for a given list of symbols.
 func (tc *Client) GetPriceStatistics(symbols []string) (GetPriceStatisticsResponse, error) {
 	params := "?symbols=" + strings.Join(symbols, ",")
 	url := tc.endpoint + "/beta/markets/fundamentals/statistics" + params
@@ -868,4 +966,22 @@ func (tc *Client) makeSignedRequest(method, url string, body url.Values) (*http.
 	}
 
 	return req, nil
+}
+
+// oneToInfinity takes an arbitrary interface type to unmarshal into and byte slice containing JSON data.
+// It returns an unmarshalled slice of the provided type regardless of whether the JSON data contains a single
+// key-value pair or an array of key-value pairs. If the data cannot be unmarshalled, it will panic.
+func oneToInfinity(i interface{}, b []byte) interface{} {
+	v := reflect.New(reflect.TypeOf(i))
+
+	results := reflect.New(reflect.SliceOf(v.Type()))
+	result := reflect.New(v.Type())
+
+	if err := json.Unmarshal(b, result.Interface()); err != nil {
+		if err := json.Unmarshal(b, results.Interface()); err != nil {
+			panic(err)
+		}
+		return reflect.Indirect(results).Interface()
+	}
+	return reflect.Append(reflect.Indirect(results), reflect.Indirect(result)).Interface()
 }
